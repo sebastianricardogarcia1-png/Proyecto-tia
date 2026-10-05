@@ -1,0 +1,75 @@
+/**
+ * Servicio de compresión automática de imágenes en el cliente (Navegador).
+ * Utiliza Canvas API para redimensionar y comprimir fotos antes de subirlas/guardarlas.
+ */
+
+export const compressImage = (file, options = {}) => {
+  const {
+    maxWidth = 1200,
+    maxHeight = 1200,
+    quality = 0.82,
+    outputType = 'image/webp'
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      return reject(new Error('El archivo seleccionado no es una imagen válida.'));
+    }
+
+    const originalSizeKb = (file.size / 1024).toFixed(1);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+
+        // Calcular ratio manteniendo proporciones
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        // Suavizado de imagen de alta calidad
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convertir a Data URL comprimido
+        const compressedDataUrl = canvas.toDataURL(outputType, quality);
+        
+        // Calcular tamaño comprimido aproximado
+        const head = `data:${outputType};base64,`;
+        const base64Length = compressedDataUrl.length - head.length;
+        const compressedSizeKb = ((base64Length * 3) / 4 / 1024).toFixed(1);
+
+        resolve({
+          dataUrl: compressedDataUrl,
+          originalSizeKb: parseFloat(originalSizeKb),
+          compressedSizeKb: parseFloat(compressedSizeKb),
+          width,
+          height,
+          savingsPercent: Math.max(0, Math.round(((originalSizeKb - compressedSizeKb) / originalSizeKb) * 100))
+        });
+      };
+
+      img.onerror = () => reject(new Error('No se pudo procesar la imagen seleccionada.'));
+      img.src = event.target.result;
+    };
+
+    reader.onerror = () => reject(new Error('Error al leer el archivo.'));
+    reader.readAsDataURL(file);
+  });
+};
