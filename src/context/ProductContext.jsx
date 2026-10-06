@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
+import { fetchProductsFromSupabase, createProductInSupabase } from '../services/supabaseService';
 
 const ProductContext = createContext();
 
@@ -68,20 +69,24 @@ const normalizeProduct = (p) => {
 };
 
 export const ProductProvider = ({ children }) => {
-  const [products, setProducts] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(normalizeProduct);
-        }
-      }
-    } catch (e) {
-      console.error('Error loading products from localStorage:', e);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Cargar productos desde Supabase al iniciar la aplicación
+  const loadProducts = async () => {
+    setLoading(true);
+    const { success, data, error } = await fetchProductsFromSupabase();
+    if (success && Array.isArray(data)) {
+      setProducts(data.map(normalizeProduct));
+    } else {
+      console.error('Error al cargar productos desde Supabase:', error);
     }
-    return INITIAL_PRODUCTS.map(normalizeProduct);
-  });
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
 
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
     return checkAuthValidity();
@@ -138,17 +143,25 @@ export const ProductProvider = ({ children }) => {
   };
 
   // CRUD y acciones rápidas
-  const addProduct = (newProduct) => {
-    const id = `prod-${Date.now()}`;
-    const productWithId = normalizeProduct({
-      ...newProduct,
-      id,
-      active: true,
-      createdAt: new Date().toISOString()
-    });
-    setProducts((prev) => [productWithId, ...prev]);
-    showToast('Prenda agregada exitosamente al catálogo.');
-    return productWithId;
+  const addProduct = async (newProduct) => {
+    try {
+      const { success, data, error } = await createProductInSupabase(newProduct);
+      if (success && data) {
+        // Refrescar el catálogo directamente desde Supabase
+        await loadProducts();
+        showToast('¡Prenda y estilos agregados exitosamente a Supabase!', 'success');
+        return { success: true, data };
+      } else {
+        const errorMsg = error?.message || 'Error desconocido al guardar en la base de datos';
+        console.error('Error en createProductInSupabase:', error);
+        showToast(`Error al guardar: ${errorMsg}`, 'error');
+        return { success: false, error };
+      }
+    } catch (e) {
+      console.error('Error inesperado en addProduct:', e);
+      showToast('Error inesperado al guardar la prenda.', 'error');
+      return { success: false, error: e };
+    }
   };
 
   const updateProduct = (id, updatedFields) => {
@@ -243,6 +256,8 @@ export const ProductProvider = ({ children }) => {
     <ProductContext.Provider
       value={{
         products,
+        loading,
+        refreshProducts: loadProducts,
         activeProducts,
         stats,
         selectedProduct,

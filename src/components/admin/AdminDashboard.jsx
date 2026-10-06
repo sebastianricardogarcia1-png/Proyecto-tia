@@ -38,13 +38,16 @@ export const AdminDashboard = ({ onBackToStore }) => {
     setIsModalOpen(true);
   };
 
-  const handleSaveProduct = (formData) => {
+  const handleSaveProduct = async (formData) => {
     if (productToEdit) {
       updateProduct(productToEdit.id, formData);
+      setIsModalOpen(false);
     } else {
-      addProduct(formData);
+      const result = await addProduct(formData);
+      if (result?.success) {
+        setIsModalOpen(false);
+      }
     }
-    setIsModalOpen(false);
   };
 
   const handleDelete = (id, name) => {

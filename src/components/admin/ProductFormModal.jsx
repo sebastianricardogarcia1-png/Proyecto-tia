@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Plus, Trash2, Layers, Sparkles, AlertCircle, Image as ImageIcon } from 'lucide-react';
+import { X, Save, Plus, Trash2, Layers, Sparkles, AlertCircle, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { CATEGORIES_HOMBRE, CATEGORIES_MUJER } from '../../data/categories';
 import { ImageUploadCompressor } from './ImageUploadCompressor';
 
 export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     audience: 'mujer', // 'hombre' | 'mujer'
@@ -137,9 +138,9 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || isSubmitting) return;
 
     // Normalizar precios numéricos en variantes
     const formattedVariants = formData.variants.map((v) => ({
@@ -149,14 +150,21 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
 
     const mainVariant = formattedVariants[0];
 
-    onSave({
-      ...formData,
-      price: mainVariant.price,
-      imageUrl: mainVariant.imageUrl,
-      available: formattedVariants.some((v) => v.available),
-      variants: formattedVariants,
-      reference: formData.reference || mainVariant.reference || `DC-${Date.now().toString().slice(-4)}`
-    });
+    try {
+      setIsSubmitting(true);
+      await onSave({
+        ...formData,
+        price: mainVariant.price,
+        imageUrl: mainVariant.imageUrl,
+        available: formattedVariants.some((v) => v.available),
+        variants: formattedVariants,
+        reference: formData.reference || mainVariant.reference || `DC-${Date.now().toString().slice(-4)}`
+      });
+    } catch (err) {
+      console.error('Error al guardar producto:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -467,10 +475,20 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
 
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl bg-brand-dark hover:bg-black text-white text-xs font-bold uppercase tracking-wider shadow-md transition-smooth flex items-center gap-2"
+              disabled={isSubmitting}
+              className="px-6 py-2.5 rounded-xl bg-brand-dark hover:bg-black text-white text-xs font-bold uppercase tracking-wider shadow-md transition-smooth flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Save className="w-4 h-4" />
-              <span>Guardar Producto ({formData.variants.length} estilos)</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-gold" />
+                  <span>Guardando en Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Guardar Producto ({formData.variants.length} estilos)</span>
+                </>
+              )}
             </button>
           </div>
 
