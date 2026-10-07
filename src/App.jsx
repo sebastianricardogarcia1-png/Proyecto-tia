@@ -209,6 +209,40 @@ export function App() {
                 </div>
               </div>
 
+              {/* Barra de categorías en móvil para Hombre o Mujer */}
+              {(audienceFilter === 'hombre' || audienceFilter === 'mujer') && (
+                <div className="md:hidden -mx-4 px-4 overflow-x-auto no-scrollbar py-1">
+                  <div className="flex items-center gap-2 min-w-max pb-1">
+                    <button
+                      onClick={() => setSelectedCategory('todos')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                        selectedCategory === 'todos'
+                          ? (audienceFilter === 'hombre' ? 'bg-blue-600 text-white shadow-xs' : 'bg-pink-600 text-white shadow-xs')
+                          : 'bg-white border border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      Ver Todo
+                    </button>
+                    {(audienceFilter === 'hombre' ? CATEGORIES_HOMBRE : CATEGORIES_MUJER).map((cat) => {
+                      const isCatActive = selectedCategory === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setSelectedCategory(cat.id)}
+                          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                            isCatActive
+                              ? (audienceFilter === 'hombre' ? 'bg-blue-600 text-white shadow-xs' : 'bg-pink-600 text-white shadow-xs')
+                              : 'bg-white border border-gray-200 text-gray-700'
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Grid de Productos del Catálogo */}
               <ProductGrid
                 products={filteredCatalogProducts}

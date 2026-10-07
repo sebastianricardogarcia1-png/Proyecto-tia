@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { MessageCircle, Menu, X, Sparkles, Star, ChevronDown, ArrowRight } from 'lucide-react';
+import { MessageCircle, Sparkles, Star, ChevronDown, ArrowRight } from 'lucide-react';
 import { getGeneralWhatsAppUrl } from '../../services/whatsappService';
 import { CATEGORIES_HOMBRE, CATEGORIES_MUJER } from '../../data/categories';
 
@@ -11,27 +11,6 @@ export const Navbar = ({
   selectedCategory = 'todos',
   setSelectedCategory
 }) => {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [mobileHombreOpen, setMobileHombreOpen] = useState(false);
-  const [mobileMujerOpen, setMobileMujerOpen] = useState(false);
-
-  // Toggle exclusivo para acordeones en menú móvil
-  const toggleMobileHombre = () => {
-    setMobileHombreOpen((prev) => {
-      const next = !prev;
-      if (next) setMobileMujerOpen(false);
-      return next;
-    });
-  };
-
-  const toggleMobileMujer = () => {
-    setMobileMujerOpen((prev) => {
-      const next = !prev;
-      if (next) setMobileHombreOpen(false);
-      return next;
-    });
-  };
-
   // Hover states for desktop dropdowns
   const [hombreHover, setHombreHover] = useState(false);
   const [mujerHover, setMujerHover] = useState(false);
@@ -45,9 +24,6 @@ export const Navbar = ({
     if (setAudienceFilter) setAudienceFilter(audience);
     if (setSelectedCategory) setSelectedCategory(category);
     
-    setIsMobileMenuOpen(false);
-    setMobileHombreOpen(false);
-    setMobileMujerOpen(false);
     setHombreHover(false);
     setMujerHover(false);
 
@@ -278,7 +254,7 @@ export const Navbar = ({
             </button>
           </nav>
 
-          {/* Right Actions: WhatsApp + Menu */}
+          {/* Right Actions: WhatsApp */}
           <div className="flex items-center gap-2.5 shrink-0">
             <a
               href={whatsappUrl}
@@ -289,123 +265,10 @@ export const Navbar = ({
               <MessageCircle className="w-4 h-4 fill-emerald-500/20 text-emerald-600" />
               <span className="hidden sm:inline">WhatsApp</span>
             </a>
-
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden p-2 rounded-xl bg-gray-100 text-gray-800 hover:bg-gray-200 transition-smooth"
-              aria-label="Abrir menú"
-            >
-              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
 
         </div>
       </div>
-
-      {/* Mobile Drawer Menu with Accordion Subcategories */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-xl border-b border-gray-200 animate-slide-up px-4 pt-3 pb-6 space-y-2.5 shadow-2xl max-h-[80vh] overflow-y-auto">
-          
-          {/* Inicio */}
-          <button
-            onClick={() => handleNavClick('home', 'todos', 'todos')}
-            className={`w-full text-left px-4 py-3 rounded-xl font-bold text-base flex items-center justify-between ${
-              isHomeActive ? 'bg-brand-dark text-white' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-          >
-            <span>🏠 Inicio</span>
-          </button>
-
-          {/* Hombre Accordion */}
-          <div className="rounded-xl border border-gray-200/80 overflow-hidden">
-            <button
-              onClick={toggleMobileHombre}
-              className="w-full text-left px-4 py-3 font-bold text-base flex items-center justify-between bg-blue-50/50 text-blue-900"
-            >
-              <span>👔 Colección Hombre</span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${mobileHombreOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {mobileHombreOpen && (
-              <div className="p-2 bg-white space-y-1 border-t border-gray-100">
-                <button
-                  onClick={() => handleNavClick('home', 'hombre', 'todos')}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-blue-700 hover:bg-blue-50"
-                >
-                  Ver Todo Hombre →
-                </button>
-                {CATEGORIES_HOMBRE.map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => handleNavClick('home', 'hombre', cat.id)}
-                    className="w-full text-left px-3 py-2 rounded-lg text-xs text-gray-700 hover:bg-gray-100"
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Mujer Accordion */}
-          <div className="rounded-xl border border-gray-200/80 overflow-hidden">
-            <button
-              onClick={toggleMobileMujer}
-              className="w-full text-left px-4 py-3 font-bold text-base flex items-center justify-between bg-pink-50/50 text-pink-900"
-            >
-              <span>👗 Colección Mujer</span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${mobileMujerOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {mobileMujerOpen && (
-              <div className="p-2 bg-white space-y-1 border-t border-gray-100">
-                <button
-                  onClick={() => handleNavClick('home', 'mujer', 'todos')}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-pink-700 hover:bg-pink-50"
-                >
-                  Ver Todo Mujer →
-                </button>
-                {CATEGORIES_MUJER.map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => handleNavClick('home', 'mujer', cat.id)}
-                    className="w-full text-left px-3 py-2 rounded-lg text-xs text-gray-700 hover:bg-gray-100"
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Recién Llegados */}
-          <button
-            onClick={() => handleNavClick('new')}
-            className={`w-full text-left px-4 py-3 rounded-xl font-bold text-base flex items-center justify-between ${
-              isNewActive ? 'bg-brand-dark text-white' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-brand-gold" />
-              <span>Recién Llegados</span>
-            </span>
-          </button>
-
-          {/* Selección Especial */}
-          <button
-            onClick={() => handleNavClick('featured')}
-            className={`w-full text-left px-4 py-3 rounded-xl font-bold text-base flex items-center justify-between ${
-              isFeaturedActive ? 'bg-amber-100 text-amber-900' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-              <span>Selección Especial</span>
-            </span>
-          </button>
-        </div>
-      )}
     </header>
   );
 };
