@@ -1,34 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { INITIAL_PRODUCTS } from '../data/initialProducts';
-import { fetchProductsFromSupabase, createProductInSupabase } from '../services/supabaseService';
+import { supabase } from '../services/supabaseClient';
+import { fetchProductsFromSupabase, createProductInSupabase, updateProductInSupabase, deleteProductFromSupabase } from '../services/supabaseService';
 
 const ProductContext = createContext();
-
-const STORAGE_KEY = 'dulce_products_v3';
-const AUTH_KEY = 'dulce_admin_auth_v1';
-const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
-
-// Helper para verificar si la sesión administrativa sigue vigente (menos de 24 horas)
-const checkAuthValidity = () => {
-  try {
-    const rawAuth = localStorage.getItem(AUTH_KEY);
-    if (!rawAuth) return false;
-
-    // Formato estructurado con tiempo de expiración
-    if (rawAuth.startsWith('{')) {
-      const parsed = JSON.parse(rawAuth);
-      if (parsed?.authenticated && parsed?.expiresAt && Date.now() < parsed.expiresAt) {
-        return true;
-      }
-    }
-  } catch (e) {
-    console.error('Error al verificar sesión administrativa:', e);
-  }
-
-  // Si no tiene fecha válida o ya expiraron las 24 horas, limpiar almacenamiento
-  localStorage.removeItem(AUTH_KEY);
-  return false;
-};
 
 // Helper de normalización para asegurar que todo producto tenga su array de variants y availability sincronizada
 const normalizeProduct = (p) => {
@@ -41,8 +15,7 @@ const normalizeProduct = (p) => {
           price: p.price,
           imageUrl: p.imageUrl,
           available: p.available !== undefined ? Boolean(p.available) : true,
-          reference: p.reference || '',
-          description: p.description || ''
+          reference: p.reference || ''
         }
       ];
 
@@ -71,6 +44,9 @@ const normalizeProduct = (p) => {
 export const ProductProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null); // Para modal de detalle
+  const [toastMessage, setToastMessage] = useState(null);
 
   // Cargar productos desde Supabase al iniciar la aplicación
   const loadProducts = async () => {
@@ -88,28 +64,24 @@ export const ProductProvider = ({ children }) => {
     loadProducts();
   }, []);
 
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
-    return checkAuthValidity();
-  });
-
-  const [selectedProduct, setSelectedProduct] = useState(null); // Para modal de detalle
-  const [toastMessage, setToastMessage] = useState(null);
-
+  // Verificar y sincronizar sesión activa con Supabase Auth
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-    } catch (e) {
-      console.error('Error saving products to localStorage:', e);
-    }
-  }, [products]);
+    // 1. Obtener sesión activa existente al recargar la página
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAdminAuthenticated(!!session?.user);
+    });
 
-  // Verificar periódicamente si la sesión administrativa de 24h ha expirado
-  useEffect(() => {
-    if (isAdminAuthenticated && !checkAuthValidity()) {
-      setIsAdminAuthenticated(false);
-      showToast('Tu sesión ha expirado por seguridad (límite de 24 horas).', 'info');
-    }
-  }, [isAdminAuthenticated]);
+    // 2. Escuchar cambios de estado en Supabase Auth (inicio de sesión, cierre de sesión, etc.)
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAdminAuthenticated(!!session?.user);
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
 
   const showToast = (message, type = 'success') => {
     setToastMessage({ message, type });
@@ -118,28 +90,57 @@ export const ProductProvider = ({ children }) => {
     }, 3500);
   };
 
-  // Autenticación administrativa con expiración de 24 horas
-  const loginAdmin = (password) => {
-    // Clave predeterminada
-    if (password === 'dulce2026' || password === 'admin123') {
-      const expiresAt = Date.now() + SESSION_DURATION_MS;
-      const sessionData = {
-        authenticated: true,
-        expiresAt
-      };
-      localStorage.setItem(AUTH_KEY, JSON.stringify(sessionData));
-      setIsAdminAuthenticated(true);
-      showToast('¡Bienvenida al panel administrativo de DULCE chic y sneaks!', 'success');
-      return true;
+  // Autenticación administrativa con Supabase Auth
+  const loginAdmin = async (email, password) => {
+    try {
+      const cleanEmail = (email || '').trim();
+      const cleanPassword = (password || '').trim();
+
+      if (!cleanEmail || !cleanPassword) {
+        showToast('Ingresa tu correo y contraseña.', 'error');
+        return { success: false, error: 'Campos requeridos vacíos.' };
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: cleanPassword
+      });
+
+      if (error) {
+        let msg = 'Error al iniciar sesión. Verifica tus credenciales.';
+        if (error.message.includes('Invalid login credentials')) {
+          msg = 'Correo o contraseña incorrectos. Verifica e intenta de nuevo.';
+        } else if (error.message.includes('Email not confirmed')) {
+          msg = 'El correo electrónico no ha sido confirmado en Supabase.';
+        }
+        showToast(msg, 'error');
+        return { success: false, error: msg };
+      }
+
+      if (data?.user) {
+        setIsAdminAuthenticated(true);
+        showToast('¡Bienvenida al panel administrativo de DULCE chic y sneaks!', 'success');
+        return { success: true, user: data.user };
+      }
+
+      return { success: false, error: 'No se pudo iniciar sesión.' };
+    } catch (e) {
+      console.error('Error inesperado en loginAdmin:', e);
+      showToast('Error de conexión con Supabase Auth.', 'error');
+      return { success: false, error: e.message };
     }
-    showToast('Contraseña incorrecta. Intenta nuevamente.', 'error');
-    return false;
   };
 
-  const logoutAdmin = () => {
-    setIsAdminAuthenticated(false);
-    localStorage.removeItem(AUTH_KEY);
-    showToast('Sesión cerrada correctamente.', 'info');
+  const logoutAdmin = async () => {
+    try {
+      await supabase.auth.signOut();
+      setIsAdminAuthenticated(false);
+      showToast('Sesión cerrada correctamente.', 'info');
+    } catch (e) {
+      console.error('Error al cerrar sesión:', e);
+      setIsAdminAuthenticated(false);
+      showToast('Sesión cerrada.', 'info');
+    }
   };
 
   // CRUD y acciones rápidas
@@ -164,71 +165,46 @@ export const ProductProvider = ({ children }) => {
     }
   };
 
-  const updateProduct = (id, updatedFields) => {
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id === id) {
-          return normalizeProduct({ ...p, ...updatedFields, updatedAt: new Date().toISOString() });
-        }
-        return p;
-      })
-    );
-    showToast('Prenda actualizada correctamente.');
+  const updateProduct = async (id, updatedFields) => {
+    try {
+      const { success, data, error } = await updateProductInSupabase(id, updatedFields);
+      if (success) {
+        // Refrescar el catálogo directamente desde Supabase
+        await loadProducts();
+        showToast('Prenda y estilos actualizados correctamente en Supabase.', 'success');
+        return { success: true, data };
+      } else {
+        const errorMsg = error?.message || 'Error desconocido al actualizar en la base de datos';
+        console.error('Error en updateProductInSupabase:', error);
+        showToast(`Error al actualizar: ${errorMsg}`, 'error');
+        return { success: false, error };
+      }
+    } catch (e) {
+      console.error('Error inesperado en updateProduct:', e);
+      showToast('Error inesperado al actualizar la prenda.', 'error');
+      return { success: false, error: e };
+    }
   };
 
-  const deleteProduct = (id) => {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
-    showToast('Prenda eliminada del catálogo.', 'info');
-  };
-
-  const toggleAvailability = (id) => {
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id === id) {
-          const newStatus = !p.available;
-          showToast(newStatus ? 'Prenda y estilos marcados como Disponibles 🟢' : 'Prenda y estilos marcados como Agotados 🔴');
-          
-          // Sincronizar todas las variantes con el nuevo estado
-          const updatedVariants = (p.variants || []).map((v) => ({
-            ...v,
-            available: newStatus
-          }));
-
-          return normalizeProduct({
-            ...p,
-            available: newStatus,
-            variants: updatedVariants
-          });
-        }
-        return p;
-      })
-    );
-  };
-
-  const toggleNew = (id) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, isNew: !p.isNew } : p))
-    );
-  };
-
-  const toggleFeatured = (id) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, isFeatured: !p.isFeatured } : p))
-    );
-  };
-
-  const toggleActive = (id) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, active: !p.active } : p))
-    );
-    showToast('Estado de visibilidad actualizado.');
-  };
-
-  const resetToDefaultProducts = () => {
-    const normalizedDefaults = INITIAL_PRODUCTS.map(normalizeProduct);
-    setProducts(normalizedDefaults);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedDefaults));
-    showToast('Catálogo restablecido con los productos de fábrica.', 'info');
+  const deleteProduct = async (id) => {
+    try {
+      const { success, error } = await deleteProductFromSupabase(id);
+      if (success) {
+        // Refrescar el catálogo directamente desde Supabase
+        await loadProducts();
+        showToast('Prenda y estilos eliminados correctamente de Supabase.', 'info');
+        return { success: true };
+      } else {
+        const errorMsg = error?.message || 'Error desconocido al eliminar en la base de datos';
+        console.error('Error en deleteProductFromSupabase:', error);
+        showToast(`Error al eliminar: ${errorMsg}`, 'error');
+        return { success: false, error };
+      }
+    } catch (e) {
+      console.error('Error inesperado en deleteProduct:', e);
+      showToast('Error inesperado al eliminar la prenda.', 'error');
+      return { success: false, error: e };
+    }
   };
 
   // Métricas para el Dashboard
@@ -268,11 +244,6 @@ export const ProductProvider = ({ children }) => {
         addProduct,
         updateProduct,
         deleteProduct,
-        toggleAvailability,
-        toggleNew,
-        toggleFeatured,
-        toggleActive,
-        resetToDefaultProducts,
         toastMessage,
         showToast
       }}

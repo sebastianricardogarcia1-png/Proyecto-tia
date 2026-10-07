@@ -12,6 +12,7 @@ import { AdminLogin } from './components/admin/AdminLogin';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { useProducts } from './context/ProductContext';
 import { CATEGORIES_HOMBRE, CATEGORIES_MUJER } from './data/categories';
+import { formatCOP } from './services/whatsappService';
 import { ArrowLeft } from 'lucide-react';
 
 const normalizeSearchText = (text) =>
@@ -24,7 +25,6 @@ const normalizeSearchText = (text) =>
 
 export function App() {
   const {
-    products,
     activeProducts,
     selectedProduct,
     setSelectedProduct,
@@ -97,8 +97,7 @@ export function App() {
           const variantsMatch = product.variants?.some(
             (v) =>
               normalizeSearchText(v.color).includes(query) ||
-              normalizeSearchText(v.reference).includes(query) ||
-              normalizeSearchText(v.description).includes(query)
+              normalizeSearchText(v.reference).includes(query)
           );
 
           if (!nameMatch && !catMatch && !audienceMatch && !descMatch && !refMatch && !variantsMatch) {

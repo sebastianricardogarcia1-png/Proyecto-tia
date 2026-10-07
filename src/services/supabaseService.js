@@ -20,7 +20,6 @@ export const transformProductFromSupabase = (dbProduct) => {
     imageUrl: v.imagen_url || '',
     available: v.disponible !== undefined ? Boolean(v.disponible) : true,
     reference: v.referencia || '',
-    description: v.descripcion || '',
     order: v.orden ?? 0,
     createdAt: v.created_at
   }));
@@ -35,7 +34,6 @@ export const transformProductFromSupabase = (dbProduct) => {
       imageUrl: '',
       available: true,
       reference: dbProduct.referencia || '',
-      description: '',
       order: 0,
       createdAt: dbProduct.created_at
     }
@@ -90,7 +88,6 @@ export const fetchProductsFromSupabase = async () => {
           imagen_url,
           disponible,
           referencia,
-          descripcion,
           orden,
           created_at
         )
@@ -204,8 +201,7 @@ export const createProductInSupabase = async (productData) => {
             price: productData.price || 0,
             imageUrl: productData.imageUrl || '',
             available: productData.available !== undefined ? Boolean(productData.available) : true,
-            reference: productData.reference || '',
-            description: productData.description || ''
+            reference: productData.reference || ''
           }
         ];
 
@@ -240,7 +236,6 @@ export const createProductInSupabase = async (productData) => {
         imagen_url: finalImageUrl,
         disponible: v.available !== undefined ? Boolean(v.available) : true,
         referencia: (v.reference || '').trim(),
-        descripcion: (v.description || '').trim(),
         orden: i
       });
     }
@@ -297,4 +292,259 @@ export const createProductInSupabase = async (productData) => {
     return { success: false, data: null, error: err };
   }
 };
+
+/**
+ * Actualiza un producto existente y sincroniza todas sus variantes en Supabase.
+ * - Sube imágenes nuevas a Supabase Storage si vienen en Base64.
+ * - Conserva imágenes existentes en URL.
+ * - Actualiza la fila en la tabla 'productos'.
+ * - Actualiza variantes existentes, inserta variantes nuevas y elimina las retiradas.
+ * @param {string} productId - UUID del producto en Supabase
+ * @param {Object} productData - Datos del producto actualizados
+ * @returns {Promise<{ success: boolean, data: Object|null, error: any }>}
+ */
+export const updateProductInSupabase = async (productId, productData) => {
+  try {
+    if (!productId) {
+      return { success: false, data: null, error: new Error('ID de producto no válido') };
+    }
+
+    // 1. Actualizar el registro principal en la tabla 'productos'
+    const productPayload = {
+      nombre: (productData.name || '').trim(),
+      publico: productData.audience || 'mujer',
+      categoria: (productData.category || 'zapatos').toLowerCase().trim(),
+      descripcion: (productData.description || '').trim(),
+      es_nuevo: Boolean(productData.isNew),
+      es_destacado: Boolean(productData.isFeatured),
+      activo: productData.active !== undefined ? Boolean(productData.active) : true,
+      referencia: (productData.reference || '').trim(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: updatedProduct, error: productError } = await supabase
+      .from('productos')
+      .update(productPayload)
+      .eq('id', productId)
+      .select()
+      .single();
+
+    if (productError) {
+      console.error('Error al actualizar registro en tabla productos:', productError);
+      return { success: false, data: null, error: productError };
+    }
+
+    // 2. Obtener variantes existentes en la base de datos para este producto
+    const { data: existingDbVariants, error: fetchVariantsError } = await supabase
+      .from('variantes')
+      .select('id')
+      .eq('producto_id', productId);
+
+    if (fetchVariantsError) {
+      console.error('Error al consultar variantes existentes en Supabase:', fetchVariantsError);
+      return { success: false, data: null, error: fetchVariantsError };
+    }
+
+    const existingDbIds = new Set((existingDbVariants || []).map((v) => v.id));
+
+    // 3. Procesar variantes enviadas desde el formulario
+    const rawVariants = Array.isArray(productData.variants) && productData.variants.length > 0
+      ? productData.variants
+      : [
+          {
+            color: 'Estilo Principal',
+            price: productData.price || 0,
+            imageUrl: productData.imageUrl || '',
+            available: productData.available !== undefined ? Boolean(productData.available) : true,
+            reference: productData.reference || ''
+          }
+        ];
+
+    const keptVariantIds = new Set();
+    const variantsToInsert = [];
+    const variantsToUpdate = [];
+
+    for (let i = 0; i < rawVariants.length; i++) {
+      const v = rawVariants[i];
+      let finalImageUrl = v.imageUrl || '';
+
+      // Si la imagen viene en base64 (Data URL), subirla a Supabase Storage
+      if (typeof finalImageUrl === 'string' && finalImageUrl.startsWith('data:')) {
+        const uploadResult = await uploadProductImageToStorage(
+          finalImageUrl,
+          `${productData.name || 'producto'}-${v.color || i + 1}`
+        );
+
+        if (uploadResult.success && uploadResult.publicUrl) {
+          finalImageUrl = uploadResult.publicUrl;
+        } else {
+          console.error(`Fallo al subir imagen para la variante ${v.color}:`, uploadResult.error);
+          return {
+            success: false,
+            data: null,
+            error: uploadResult.error || new Error(`No se pudo subir la imagen del estilo ${v.color}`)
+          };
+        }
+      }
+
+      // Si la variante ya existe en la base de datos
+      if (v.id && existingDbIds.has(v.id)) {
+        keptVariantIds.add(v.id);
+        variantsToUpdate.push({
+          id: v.id,
+          payload: {
+            color: (v.color || 'Estilo Principal').trim(),
+            precio: Number(v.price || 0),
+            imagen_url: finalImageUrl,
+            disponible: v.available !== undefined ? Boolean(v.available) : true,
+            referencia: (v.reference || '').trim(),
+            orden: i
+          }
+        });
+      } else {
+        // Es una variante nueva agregada durante la edición
+        variantsToInsert.push({
+          producto_id: productId,
+          color: (v.color || 'Estilo Principal').trim(),
+          precio: Number(v.price || 0),
+          imagen_url: finalImageUrl,
+          disponible: v.available !== undefined ? Boolean(v.available) : true,
+          referencia: (v.reference || '').trim(),
+          orden: i
+        });
+      }
+    }
+
+    // 4. Eliminar variantes que el usuario borró del formulario
+    const idsToDelete = [...existingDbIds].filter((id) => !keptVariantIds.has(id));
+    if (idsToDelete.length > 0) {
+      const { error: deleteVariantsError } = await supabase
+        .from('variantes')
+        .delete()
+        .in('id', idsToDelete);
+
+      if (deleteVariantsError) {
+        console.error('Error al eliminar variantes retiradas en Supabase:', deleteVariantsError);
+        return { success: false, data: null, error: deleteVariantsError };
+      }
+    }
+
+    // 5. Actualizar variantes existentes una a una
+    for (const item of variantsToUpdate) {
+      const { error: updateVarError } = await supabase
+        .from('variantes')
+        .update(item.payload)
+        .eq('id', item.id);
+
+      if (updateVarError) {
+        console.error('Error al actualizar variante existente:', updateVarError);
+        return { success: false, data: null, error: updateVarError };
+      }
+    }
+
+    // 6. Insertar variantes nuevas en lote si las hay
+    if (variantsToInsert.length > 0) {
+      const { error: insertVarError } = await supabase
+        .from('variantes')
+        .insert(variantsToInsert);
+
+      if (insertVarError) {
+        console.error('Error al insertar nuevas variantes durante edición:', insertVarError);
+        return { success: false, data: null, error: insertVarError };
+      }
+    }
+
+    return { success: true, data: updatedProduct, error: null };
+  } catch (err) {
+    console.error('Error inesperado en updateProductInSupabase:', err);
+    return { success: false, data: null, error: err };
+  }
+};
+
+/**
+ * Extrae el path interno de un archivo dentro de un bucket de Supabase Storage a partir de su URL pública.
+ * Retorna null si la URL es externa o no pertenece al bucket indicado.
+ */
+export const extractStoragePathFromUrl = (url, bucketName = 'productos') => {
+  if (!url || typeof url !== 'string') return null;
+  const marker = `/storage/v1/object/public/${bucketName}/`;
+  const idx = url.indexOf(marker);
+  if (idx !== -1) {
+    const rawPath = url.substring(idx + marker.length).split('?')[0];
+    try {
+      return decodeURIComponent(rawPath);
+    } catch {
+      return rawPath;
+    }
+  }
+  return null;
+};
+
+/**
+ * Elimina un producto de Supabase junto con sus variantes y fotos asociadas en Storage.
+ * @param {string} productId - UUID del producto a eliminar
+ * @returns {Promise<{ success: boolean, error: any }>}
+ */
+export const deleteProductFromSupabase = async (productId) => {
+  try {
+    if (!productId) {
+      return { success: false, error: new Error('ID de producto no válido') };
+    }
+
+    // 1. Obtener las variantes del producto para identificar sus imágenes en Storage antes de borrar
+    const { data: variants, error: fetchVarError } = await supabase
+      .from('variantes')
+      .select('imagen_url')
+      .eq('producto_id', productId);
+
+    if (fetchVarError) {
+      console.warn('Aviso: no se pudieron consultar las variantes para obtener rutas de fotos:', fetchVarError);
+    }
+
+    // 2. Extraer rutas de archivo que pertenecen únicamente al bucket 'productos' de Supabase
+    const storagePathsToDelete = (variants || [])
+      .map((v) => extractStoragePathFromUrl(v.imagen_url, 'productos'))
+      .filter((path) => Boolean(path && path.trim().length > 0));
+
+    // 3. Eliminar explícitamente las variantes asociadas en la tabla 'variantes'
+    const { error: deleteVariantsError } = await supabase
+      .from('variantes')
+      .delete()
+      .eq('producto_id', productId);
+
+    if (deleteVariantsError) {
+      console.error('Error al eliminar variantes en Supabase:', deleteVariantsError);
+      return { success: false, error: deleteVariantsError };
+    }
+
+    // 4. Eliminar el registro principal en la tabla 'productos'
+    const { error: deleteProductError } = await supabase
+      .from('productos')
+      .delete()
+      .eq('id', productId);
+
+    if (deleteProductError) {
+      console.error('Error al eliminar producto en tabla productos:', deleteProductError);
+      return { success: false, error: deleteProductError };
+    }
+
+    // 5. Eliminar las imágenes huérfanas del bucket de Storage si existían
+    if (storagePathsToDelete.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from('productos')
+        .remove(storagePathsToDelete);
+
+      if (storageError) {
+        console.warn('Aviso al limpiar imágenes en Storage:', storageError);
+      }
+    }
+
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Error inesperado en deleteProductFromSupabase:', err);
+    return { success: false, error: err };
+  }
+};
+
+
 

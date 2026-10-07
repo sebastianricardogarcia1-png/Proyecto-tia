@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  Plus, Edit3, Trash2, LogOut, RotateCcw, Search, 
-  Sparkles, Star, CheckCircle, XCircle, ShoppingBag, Eye, ExternalLink 
+  Plus, Edit3, Trash2, LogOut, Search, 
+  Eye, ExternalLink 
 } from 'lucide-react';
 import { useProducts } from '../../context/ProductContext';
 import { formatCOP } from '../../services/whatsappService';
@@ -16,10 +16,6 @@ export const AdminDashboard = ({ onBackToStore }) => {
     addProduct,
     updateProduct,
     deleteProduct,
-    toggleAvailability,
-    toggleNew,
-    toggleFeatured,
-    resetToDefaultProducts,
     setSelectedProduct
   } = useProducts();
 
@@ -40,8 +36,10 @@ export const AdminDashboard = ({ onBackToStore }) => {
 
   const handleSaveProduct = async (formData) => {
     if (productToEdit) {
-      updateProduct(productToEdit.id, formData);
-      setIsModalOpen(false);
+      const result = await updateProduct(productToEdit.id, formData);
+      if (result?.success) {
+        setIsModalOpen(false);
+      }
     } else {
       const result = await addProduct(formData);
       if (result?.success) {
@@ -50,15 +48,9 @@ export const AdminDashboard = ({ onBackToStore }) => {
     }
   };
 
-  const handleDelete = (id, name) => {
+  const handleDelete = async (id, name) => {
     if (window.confirm(`¿Estás segura de eliminar "${name}" del catálogo?`)) {
-      deleteProduct(id);
-    }
-  };
-
-  const handleResetDemo = () => {
-    if (window.confirm('⚠️ ¿Estás segura de restablecer los productos demo de fábrica? Esta acción reemplazará los productos que hayas creado o editado.')) {
-      resetToDefaultProducts();
+      await deleteProduct(id);
     }
   };
 
@@ -188,8 +180,6 @@ export const AdminDashboard = ({ onBackToStore }) => {
                 <th className="py-3.5 px-4">Prenda</th>
                 <th className="py-3.5 px-4">Público / Categoría</th>
                 <th className="py-3.5 px-4">Precio</th>
-                <th className="py-3.5 px-4 text-center">Nuevo</th>
-                <th className="py-3.5 px-4 text-center">Destacado</th>
                 <th className="py-3.5 px-4 text-right">Acciones</th>
               </tr>
             </thead>
@@ -282,36 +272,6 @@ export const AdminDashboard = ({ onBackToStore }) => {
                     })()}
                   </td>
 
-                  {/* Nuevo Toggle */}
-                  <td className="py-3 px-4 text-center">
-                    <button
-                      onClick={() => toggleNew(p.id)}
-                      className={`p-1.5 rounded-xl border transition-all ${
-                        p.isNew
-                          ? 'bg-brand-dark text-white border-brand-dark'
-                          : 'bg-gray-50 text-gray-300 border-gray-200 hover:text-gray-500'
-                      }`}
-                      title={p.isNew ? 'Marcado como Nuevo' : 'No marcado'}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                    </button>
-                  </td>
-
-                  {/* Destacado Toggle */}
-                  <td className="py-3 px-4 text-center">
-                    <button
-                      onClick={() => toggleFeatured(p.id)}
-                      className={`p-1.5 rounded-xl border transition-all ${
-                        p.isFeatured
-                          ? 'bg-amber-100 text-amber-600 border-amber-300'
-                          : 'bg-gray-50 text-gray-300 border-gray-200 hover:text-gray-500'
-                      }`}
-                      title={p.isFeatured ? 'Marcado como Destacado' : 'No marcado'}
-                    >
-                      <Star className={`w-4 h-4 ${p.isFeatured ? 'fill-amber-500' : ''}`} />
-                    </button>
-                  </td>
-
                   {/* Acciones */}
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
@@ -355,20 +315,11 @@ export const AdminDashboard = ({ onBackToStore }) => {
         )}
       </div>
 
-      {/* Zona Secundaria / Peligro */}
-      <div className="pt-6 border-t border-gray-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-400">
+      {/* Zona Secundaria */}
+      <div className="pt-6 border-t border-gray-200/80 flex items-center justify-center text-xs text-gray-400">
         <p className="text-gray-400">
           Panel de Administración · <strong>DULCE chic & sneaks</strong>
         </p>
-
-        <button
-          onClick={handleResetDemo}
-          className="px-3 py-1.5 text-xs text-gray-400 hover:text-rose-600 hover:bg-rose-50 border border-gray-200 hover:border-rose-200 rounded-xl transition-colors flex items-center gap-1.5"
-          title="Restablecer el catálogo con los productos demo iniciales de prueba"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Restablecer Productos Demo</span>
-        </button>
       </div>
 
       {/* Modal Form */}

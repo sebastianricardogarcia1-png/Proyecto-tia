@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Plus, Trash2, Layers, Sparkles, AlertCircle, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { X, Save, Plus, Trash2, Layers, Loader2 } from 'lucide-react';
 import { CATEGORIES_HOMBRE, CATEGORIES_MUJER } from '../../data/categories';
 import { ImageUploadCompressor } from './ImageUploadCompressor';
 
@@ -20,8 +20,7 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
         price: '',
         imageUrl: '',
         available: true,
-        reference: '',
-        description: ''
+        reference: ''
       }
     ]
   });
@@ -39,8 +38,7 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
               price: productToEdit.price || '',
               imageUrl: productToEdit.imageUrl || '',
               available: productToEdit.available !== undefined ? productToEdit.available : true,
-              reference: productToEdit.reference || '',
-              description: ''
+              reference: productToEdit.reference || ''
             }
           ];
 
@@ -80,8 +78,7 @@ export const ProductFormModal = ({ productToEdit, onClose, onSave }) => {
       price: lastPrice,
       imageUrl: '',
       available: true,
-      reference: formData.reference ? `${formData.reference}-${formData.variants.length + 1}` : '',
-      description: ''
+      reference: formData.reference ? `${formData.reference}-${formData.variants.length + 1}` : ''
     };
 
     setFormData((prev) => ({

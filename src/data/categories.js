@@ -23,16 +23,3 @@ export const CATEGORIES_MUJER = [
   { id: 'pijamas', name: 'Pijamas', slug: 'pijamas-mujer' },
 ];
 
-export const getCategoriesByAudience = (audience) => {
-  if (audience === 'hombre') return CATEGORIES_HOMBRE;
-  if (audience === 'mujer') return CATEGORIES_MUJER;
-  
-  // Para 'todos', unir categorías únicas
-  const allMap = new Map();
-  [...CATEGORIES_HOMBRE, ...CATEGORIES_MUJER].forEach(cat => {
-    if (!allMap.has(cat.id)) {
-      allMap.set(cat.id, cat);
-    }
-  });
-  return Array.from(allMap.values());
-};

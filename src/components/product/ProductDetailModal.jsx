@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, MessageCircle, Share2, Check, ChevronLeft, ChevronRight, Layers, Sparkles } from 'lucide-react';
+import { X, MessageCircle, Share2, Check, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { formatCOP, getProductWhatsAppUrl } from '../../services/whatsappService';
 import { Badge } from '../common/Badge';
@@ -19,8 +19,7 @@ export const ProductDetailModal = ({ product, onClose }) => {
           price: product?.price,
           imageUrl: product?.imageUrl,
           available: product?.available !== undefined ? product?.available : true,
-          reference: product?.reference || '',
-          description: product?.description || ''
+          reference: product?.reference || ''
         }
       ];
 
@@ -56,7 +55,7 @@ export const ProductDetailModal = ({ product, onClose }) => {
   const isAvailable = activeVariant.available !== undefined ? activeVariant.available : product.available;
   const currentPrice = activeVariant.price !== undefined ? activeVariant.price : product.price;
   const currentReference = activeVariant.reference || product.reference;
-  const currentDescription = activeVariant.description || product.description;
+  const currentDescription = product.description;
 
   const whatsappUrl = getProductWhatsAppUrl(product, activeVariant);
 
