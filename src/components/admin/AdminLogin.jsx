@@ -25,7 +25,7 @@ export const AdminLogin = ({ onBackToStore }) => {
         setErrorMessage(result?.error || 'Credenciales incorrectas.');
       }
     } catch (err) {
-      setErrorMessage('Error inesperado al conectar con Supabase Auth.');
+      setErrorMessage('Error inesperado al conectar con el servidor.');
     } finally {
       setIsSubmitting(false);
     }

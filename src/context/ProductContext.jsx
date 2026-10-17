@@ -1,86 +1,74 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../services/supabaseClient';
-import { fetchProductsFromSupabase, createProductInSupabase, updateProductInSupabase, deleteProductFromSupabase } from '../services/supabaseService';
+import { 
+  fetchProductsFromLaravel, 
+  loginAdminInLaravel, 
+  logoutAdminInLaravel, 
+  checkAuthInLaravel, 
+  getAdminToken, 
+  setAdminToken, 
+  removeAdminToken,
+  createProductInLaravel,
+  updateProductInLaravel,
+  deleteProductInLaravel
+} from '../services/laravelProductService';
+import { normalizeProduct } from '../models/ProductModel';
 
 const ProductContext = createContext();
-
-// Helper de normalización para asegurar que todo producto tenga su array de variants y availability sincronizada
-const normalizeProduct = (p) => {
-  const variants = (p.variants && Array.isArray(p.variants) && p.variants.length > 0)
-    ? p.variants
-    : [
-        {
-          id: `var-${p.id || Date.now()}-0`,
-          color: 'Estilo Principal',
-          price: p.price,
-          imageUrl: p.imageUrl,
-          available: p.available !== undefined ? Boolean(p.available) : true,
-          reference: p.reference || ''
-        }
-      ];
-
-  const formattedVariants = variants.map((v) => {
-    const { sizes, ...rest } = v;
-    return {
-      ...rest,
-      available: v.available !== undefined ? Boolean(v.available) : true,
-      price: Number(v.price || 0)
-    };
-  });
-
-  // Regla de oro: el producto general está disponible SI Y SOLO SI al menos una variante está disponible
-  const isAnyAvailable = formattedVariants.some((v) => v.available);
-  const mainVariant = formattedVariants[0];
-
-  return {
-    ...p,
-    price: mainVariant?.price !== undefined ? Number(mainVariant.price) : Number(p.price || 0),
-    imageUrl: mainVariant?.imageUrl || p.imageUrl || '',
-    available: isAnyAvailable,
-    variants: formattedVariants
-  };
-};
 
 export const ProductProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [adminToken, setAdminTokenState] = useState(() => getAdminToken());
+  const [adminUser, setAdminUser] = useState(null);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null); // Para modal de detalle
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Cargar productos desde Supabase al iniciar la aplicación
+  // Cargar productos exclusivamente desde la API de Laravel + MySQL
   const loadProducts = async () => {
     setLoading(true);
-    const { success, data, error } = await fetchProductsFromSupabase();
-    if (success && Array.isArray(data)) {
-      setProducts(data.map(normalizeProduct));
-    } else {
-      console.error('Error al cargar productos desde Supabase:', error);
+    try {
+      const laravelRes = await fetchProductsFromLaravel();
+      if (laravelRes.success && Array.isArray(laravelRes.data)) {
+        setProducts(laravelRes.data.map(normalizeProduct));
+      } else {
+        const errorMsg = laravelRes.error?.message || 'No fue posible conectar con el catálogo de Laravel.';
+        console.error('Error al cargar productos desde Laravel API:', errorMsg);
+        showToast('Error al conectar con el servidor de productos.', 'error');
+        setProducts([]);
+      }
+    } catch (err) {
+      console.error('Error inesperado al cargar productos:', err);
+      showToast('Error de conexión con el catálogo.', 'error');
+      setProducts([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     loadProducts();
   }, []);
 
-  // Verificar y sincronizar sesión activa con Supabase Auth
+  // Verificar y sincronizar sesión activa con Laravel Sanctum
   useEffect(() => {
-    // 1. Obtener sesión activa existente al recargar la página
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsAdminAuthenticated(!!session?.user);
-    });
-
-    // 2. Escuchar cambios de estado en Supabase Auth (inicio de sesión, cierre de sesión, etc.)
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAdminAuthenticated(!!session?.user);
-    });
-
-    return () => {
-      subscription?.unsubscribe();
-    };
+    const token = getAdminToken();
+    if (token) {
+      checkAuthInLaravel(token).then((res) => {
+        if (res.success && res.user?.isAdmin) {
+          setIsAdminAuthenticated(true);
+          setAdminUser(res.user);
+        } else {
+          removeAdminToken();
+          setAdminTokenState(null);
+          setIsAdminAuthenticated(false);
+          setAdminUser(null);
+        }
+      });
+    } else {
+      setIsAdminAuthenticated(false);
+      setAdminUser(null);
+    }
   }, []);
 
   const showToast = (message, type = 'success') => {
@@ -90,7 +78,7 @@ export const ProductProvider = ({ children }) => {
     }, 3500);
   };
 
-  // Autenticación administrativa con Supabase Auth
+  // Autenticación administrativa con Laravel Sanctum (con respaldo automático si se requiere)
   const loginAdmin = async (email, password) => {
     try {
       const cleanEmail = (email || '').trim();
@@ -101,60 +89,67 @@ export const ProductProvider = ({ children }) => {
         return { success: false, error: 'Campos requeridos vacíos.' };
       }
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password: cleanPassword
-      });
+      // 1. Intentar inicio de sesión en Laravel Sanctum
+      const laravelAuth = await loginAdminInLaravel(cleanEmail, cleanPassword);
 
-      if (error) {
-        let msg = 'Error al iniciar sesión. Verifica tus credenciales.';
-        if (error.message.includes('Invalid login credentials')) {
-          msg = 'Correo o contraseña incorrectos. Verifica e intenta de nuevo.';
-        } else if (error.message.includes('Email not confirmed')) {
-          msg = 'El correo electrónico no ha sido confirmado en Supabase.';
-        }
-        showToast(msg, 'error');
-        return { success: false, error: msg };
-      }
-
-      if (data?.user) {
+      if (laravelAuth.success && laravelAuth.token && laravelAuth.user?.isAdmin) {
+        setAdminToken(laravelAuth.token);
+        setAdminTokenState(laravelAuth.token);
+        setAdminUser(laravelAuth.user);
         setIsAdminAuthenticated(true);
         showToast('¡Bienvenida al panel administrativo de DULCE chic y sneaks!', 'success');
-        return { success: true, user: data.user };
+        return { success: true, user: laravelAuth.user };
       }
 
-      return { success: false, error: 'No se pudo iniciar sesión.' };
+      // Si Laravel retornó error
+      if (laravelAuth.error) {
+        showToast(laravelAuth.error, 'error');
+        return { success: false, error: laravelAuth.error };
+      }
+
+      showToast('No fue posible iniciar sesión con el servidor.', 'error');
+      return { success: false, error: 'Error de autenticación.' };
     } catch (e) {
       console.error('Error inesperado en loginAdmin:', e);
-      showToast('Error de conexión con Supabase Auth.', 'error');
+      showToast('Error de conexión con el servidor de autenticación.', 'error');
       return { success: false, error: e.message };
     }
   };
 
   const logoutAdmin = async () => {
     try {
-      await supabase.auth.signOut();
-      setIsAdminAuthenticated(false);
-      showToast('Sesión cerrada correctamente.', 'info');
+      const token = getAdminToken();
+      if (token) {
+        await logoutAdminInLaravel(token);
+      }
     } catch (e) {
       console.error('Error al cerrar sesión:', e);
+    } finally {
+      removeAdminToken();
+      setAdminTokenState(null);
+      setAdminUser(null);
       setIsAdminAuthenticated(false);
-      showToast('Sesión cerrada.', 'info');
+      showToast('Sesión cerrada correctamente.', 'info');
     }
   };
 
-  // CRUD y acciones rápidas
+  // CRUD y acciones rápidas conectadas a Laravel + MySQL
   const addProduct = async (newProduct) => {
     try {
-      const { success, data, error } = await createProductInSupabase(newProduct);
+      const token = getAdminToken();
+      if (!token) {
+        showToast('Debes iniciar sesión como administrador para crear productos.', 'error');
+        return { success: false, error: 'No autorizado' };
+      }
+
+      const { success, data, error } = await createProductInLaravel(newProduct, token);
       if (success && data) {
-        // Refrescar el catálogo directamente desde Supabase
         await loadProducts();
-        showToast('¡Prenda y estilos agregados exitosamente a Supabase!', 'success');
+        showToast('¡Prenda y estilos guardados exitosamente en la tienda!', 'success');
         return { success: true, data };
       } else {
-        const errorMsg = error?.message || 'Error desconocido al guardar en la base de datos';
-        console.error('Error en createProductInSupabase:', error);
+        const errorMsg = error || 'Error desconocido al guardar en la base de datos';
+        console.error('Error en createProductInLaravel:', error);
         showToast(`Error al guardar: ${errorMsg}`, 'error');
         return { success: false, error };
       }
@@ -167,15 +162,20 @@ export const ProductProvider = ({ children }) => {
 
   const updateProduct = async (id, updatedFields) => {
     try {
-      const { success, data, error } = await updateProductInSupabase(id, updatedFields);
+      const token = getAdminToken();
+      if (!token) {
+        showToast('Debes iniciar sesión como administrador para editar productos.', 'error');
+        return { success: false, error: 'No autorizado' };
+      }
+
+      const { success, data, error } = await updateProductInLaravel(id, updatedFields, token);
       if (success) {
-        // Refrescar el catálogo directamente desde Supabase
         await loadProducts();
-        showToast('Prenda y estilos actualizados correctamente en Supabase.', 'success');
+        showToast('Prenda y estilos actualizados correctamente.', 'success');
         return { success: true, data };
       } else {
-        const errorMsg = error?.message || 'Error desconocido al actualizar en la base de datos';
-        console.error('Error en updateProductInSupabase:', error);
+        const errorMsg = error || 'Error desconocido al actualizar en la base de datos';
+        console.error('Error en updateProductInLaravel:', error);
         showToast(`Error al actualizar: ${errorMsg}`, 'error');
         return { success: false, error };
       }
@@ -188,15 +188,20 @@ export const ProductProvider = ({ children }) => {
 
   const deleteProduct = async (id) => {
     try {
-      const { success, error } = await deleteProductFromSupabase(id);
+      const token = getAdminToken();
+      if (!token) {
+        showToast('Debes iniciar sesión como administrador para eliminar productos.', 'error');
+        return { success: false, error: 'No autorizado' };
+      }
+
+      const { success, error } = await deleteProductInLaravel(id, token);
       if (success) {
-        // Refrescar el catálogo directamente desde Supabase
         await loadProducts();
-        showToast('Prenda y estilos eliminados correctamente de Supabase.', 'info');
+        showToast('Prenda eliminada correctamente del catálogo.', 'info');
         return { success: true };
       } else {
-        const errorMsg = error?.message || 'Error desconocido al eliminar en la base de datos';
-        console.error('Error en deleteProductFromSupabase:', error);
+        const errorMsg = error || 'Error desconocido al eliminar en la base de datos';
+        console.error('Error en deleteProductInLaravel:', error);
         showToast(`Error al eliminar: ${errorMsg}`, 'error');
         return { success: false, error };
       }
@@ -239,6 +244,8 @@ export const ProductProvider = ({ children }) => {
         selectedProduct,
         setSelectedProduct,
         isAdminAuthenticated,
+        adminToken,
+        adminUser,
         loginAdmin,
         logoutAdmin,
         addProduct,
